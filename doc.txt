@@ -1,0 +1,152 @@
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.protobuf.Message;
+import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
+import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig;
+import io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer;
+import io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import topics.PaymentOuterClass;
+
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Properties;
+
+public class FileSerializerDeserializer2 {
+
+    private static final String TOPIC = "protobuf-transactions";
+    private static final Properties props = new Properties();
+    private static String configFile;
+
+    @SuppressWarnings("InfiniteLoopStatement")
+    public static void main(final String[] args) throws IOException {
+
+        if (args.length < 1) {
+            // Backwards compatibility, assume localhost
+            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+            props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, "http://localhost:8081");
+        } else {
+            // Load properties from a local configuration file
+            // Create the configuration file (e.g. at '$HOME/.confluent/java.config') with configuration parameters
+            // to connect to your Kafka cluster, which can be on your local host, Confluent Cloud, or any other cluster.
+            // Documentation at https://docs.confluent.io/platform/current/tutorials/examples/clients/docs/java.html
+            configFile = args[0];
+            if (!Files.exists(Paths.get(configFile))) {
+                throw new IOException(configFile + " not found.");
+            } else {
+                try (InputStream inputStream = new FileInputStream(configFile)) {
+                    props.load(inputStream);
+                }
+            }
+        }
+        Path path = Paths.get("doc2.dat");
+        final ObjectMapper objectMapper = new ObjectMapper();
+        byte[] serializedValue = null;
+
+            final CachedSchemaRegistryClient schemaRegistry = new CachedSchemaRegistryClient("http://localhost:8081", 10);
+            final KafkaProtobufSerializer serializer = new KafkaProtobufSerializer(schemaRegistry);
+            final KafkaProtobufDeserializer deserializer = new KafkaProtobufDeserializer(schemaRegistry);
+            FileOutputStream fos = null;
+            try {
+            fos = new FileOutputStream(new File("doc2.dat"));
+            for (long i = 101; i <= 110; i++) {
+                PaymentOuterClass.Payment payment =
+                        PaymentOuterClass.Payment.newBuilder()
+                                .setId(Long.toString(i))
+                                .setAmount(1000.00d)
+                                .build();
+                serializedValue = serializer.serialize(TOPIC, payment);
+                if (serializedValue != null) {
+                    System.out.print("Serialized value: ");
+                    System.out.write(serializedValue);
+                    System.out.println();
+                }
+                // }
+
+
+                fos.write(serializedValue);
+                fos.write("======".getBytes());
+
+
+                System.out.println("Successfully written data to the file");
+            }
+         } catch (IOException e) {
+           e.printStackTrace();
+         } finally {
+                    fos.close();
+                }
+            //}
+            ArrayList<byte[]> buffer = new ArrayList();
+            int length = -1;
+            boolean found_delimiter = false;
+            int toIndex = -1;
+            int fromIndex = 0;
+            //FileInputStream fis = null;
+            try {
+                //fis = new FileInputStream(new File("doc2.dat"));
+                byte[] binaryInput = Files.readAllBytes(path);
+                System.out.println("Length: " + binaryInput.length);
+                byte[] copy = binaryInput.clone();
+                //toIndex = locateDelimiter(copy, fromIndex);
+                while((toIndex = locateDelimiter(copy, fromIndex)) > 0) {
+                    System.out.println("Length: " + length);
+                    System.out.println("Index: " + toIndex);
+                    byte[] messageInput = Arrays.copyOfRange(binaryInput, fromIndex, toIndex);
+                    buffer.add(messageInput);
+                    fromIndex = toIndex + 6;
+
+                }
+                for (int i = 0; i < buffer.size(); i++) {
+                    Message message = deserializer.deserialize(TOPIC, buffer.get(i));
+                    System.out.println("Deserialized Message read from file:\n " + message.toString());
+                }
+    } catch(FileNotFoundException e) {
+        e.printStackTrace();
+} catch(IOException e) {
+                e.printStackTrace();
+            } catch (final Exception e) {
+                e.printStackTrace();
+            } finally
+
+    {
+        fos.close();
+    }
+  }
+
+    // return start of delimiter string "======"
+    private static int locateDelimiter(byte[] array, int start) {
+        boolean found_delimiter = false;
+        int toIndex = -1;
+        int fromIndex = start;
+        int delimiterStart = -1;
+        int length = -1;
+        if(start >= array.length) {
+            return -1;
+        }
+        for(int j = start; j < array.length; j++) {
+            char testChar = (char) array[j];
+            if(testChar == '=') {
+                found_delimiter = true;
+                delimiterStart = j;
+                length = 1;
+                toIndex = j;
+                while(( ++j < array.length) && (testChar = (char) array[j]) == '=') {
+                    length++;
+                }
+                if(length == 6) {
+                    //System.out.println("Delimiter found: start " + delimiterStart + " end " + j);
+                    return delimiterStart;
+                }
+                //System.out.println("Found equals at position: " + j);
+            }
+        }
+        if(! found_delimiter) {
+            return start;
+        }
+        return -1; // may not be needed
+    }
+}
+
